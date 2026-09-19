@@ -1,40 +1,44 @@
 import streamlit as st
+import subprocess
 import os
 
-# Import your backend functions directly from your jarvis.py file
-# (Replace 'your_main_backend_function' with the actual function name in jarvis.py)
-try:
-    from jarvis import your_main_backend_function 
-except ImportError:
-    st.error("Could not import your backend code. Double-check your function names.")
+st.set_page_config(page_title="Jarvis Backend Panel", page_icon="🤖")
+st.title("🤖 Jarvis Backend Portal")
 
-st.set_page_config(page_title="Jarvis Web Portal", page_icon="🤖")
-st.title("🤖 Jarvis Control Center")
-st.write("Interact with your backend engine via the web.")
-
-# Step 1: Ensure the OpenRouter secret is passed into the system environment
+# 1. Safely route your OpenRouter API key from Streamlit's secrets into the environment variables
 if "OPENROUTER_API_KEY" in st.secrets:
     os.environ["OPENROUTER_API_KEY"] = st.secrets["OPENROUTER_API_KEY"]
 else:
-    st.error("Missing OPENROUTER_API_KEY in Streamlit Cloud Secrets.")
+    st.error("Missing API Key! Please paste your OPENROUTER_API_KEY into the Streamlit Advanced Settings -> Secrets panel.")
     st.stop()
 
-# Step 2: Build the Frontend Inputs
-user_input = st.text_input("Send a command to Jarvis Backend:", placeholder="Type here...")
+# 2. Build the simple user interface text input
+user_query = st.text_input("Send a request to Jarvis:", placeholder="Type something...")
 
-# Step 3: Trigger the Backend Logic
-if st.button("Execute Command"):
-    if user_input:
-        with st.spinner("Processing in backend..."):
+if st.button("Trigger Backend Engine"):
+    if user_query:
+        with st.spinner("Running jarvis.py backend code..."):
             try:
-                # Run your backend function using the user's input
-                backend_output = your_main_backend_function(user_input)
+                # 3. This executes 'python jarvis.py' in the background and sends the query
+                result = subprocess.run(
+                    ["python", "jarvis.py", user_query],
+                    capture_output=True,
+                    text=True,
+                    timeout=30 # Prevents the script from hanging forever if it gets stuck
+                )
                 
-                st.success("Execution Complete!")
-                st.subheader("Backend Output:")
-                st.write(backend_output)
+                # 4. Display the results back to the website visitor
+                if result.returncode == 0:
+                    st.success("Backend completed execution successfully!")
+                    if result.stdout:
+                        st.subheader("Jarvis Response:")
+                        st.write(result.stdout)
+                else:
+                    st.error("The backend script returned an execution error:")
+                    st.code(result.stderr if result.stderr else result.stdout)
+                    
             except Exception as e:
-                st.error(f"Backend crashed: {e}")
+                st.error(f"Failed to communicate with backend: {e}")
     else:
-        st.warning("Please enter a command first.")
-      
+        st.warning("Please enter a prompt first.")
+        
