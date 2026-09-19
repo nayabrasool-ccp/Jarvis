@@ -1,58 +1,76 @@
 import streamlit as st
 from streamlit_mic_recorder import mic_recorder
+from openai import OpenAI
 import os
-import subprocess
-import tempfile
+import sys
 
-st.set_page_config(page_title="Jarvis Voice Portal", page_icon="🎙️")
-st.title("🎙️ Jarvis Voice-to-Text Portal")
-st.write("Click the button, speak, and click stop. Your voice will be processed by your backend script.")
-
-# 1. Forward OpenRouter secrets to the environment
-if "OPENROUTER_API_KEY" in st.secrets:
-    os.environ["OPENROUTER_API_KEY"] = st.secrets["OPENROUTER_API_KEY"]
-else:
-    st.error("Missing API Key! Please paste your OPENROUTER_API_KEY into Streamlit Advanced Settings -> Secrets.")
+# Import your entire script functions directly
+try:
+    import jarvis
+except ImportError:
+    st.error("Could not link jarvis.py. Make sure both app.py and jarvis.py are in the same folder on GitHub.")
     st.stop()
 
-# 2. Web browser microphone controller
-audio = mic_recorder(
-    start_prompt="🎙️ Start Speaking",
-    stop_prompt="🛑 Stop & Process Voice",
-    key='jarvis_voice_input'
+st.set_page_config(page_title="Jarvis Web Terminal", page_icon="🤖")
+st.title("🤖 J.A.R.V.I.S. Web Hub")
+st.caption("Bridging Web Interface to Android Architecture")
+
+# 1. Initialize API Key Validation
+if "OPENROUTER_API_KEY" in st.secrets:
+    api_key = st.secrets["OPENROUTER_API_KEY"]
+    os.environ["OPENROUTER_API_KEY"] = api_key
+    jarvis.OPENROUTER_API_KEY = api_key
+else:
+    st.error("Please add your OPENROUTER_API_KEY in the Streamlit Advanced Settings -> Secrets panel.")
+    st.stop()
+
+client = OpenAI(
+    base_url="https://openrouter.ai/api/v1",
+    api_key=api_key
 )
 
-# 3. Hand off the audio bytes to the backend
+# 2. Browser Audio Collector
+audio = mic_recorder(
+    start_prompt="🎙️ Wake Jarvis / Speak Command",
+    stop_prompt="🛑 Stop & Execute Tasks",
+    key='jarvis_web_mic'
+)
+
 if audio:
-    with st.spinner("Jarvis Backend is converting your voice to text..."):
+    with st.spinner("Converting Voice-to-Text via OpenRouter Whisper..."):
         try:
-            # Save browser audio data to a temporary file
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_file:
-                temp_file.write(audio['bytes'])
-                temp_audio_path = temp_file.name
-
-            # 4. Execute jarvis.py, passing the voice file path as a command-line argument
-            result = subprocess.run(
-                ["python", "jarvis.py", temp_audio_path],
-                capture_output=True,
-                text=True,
-                timeout=45
+            audio_payload = ("audio.wav", audio['bytes'], "audio/wav")
+            transcription = client.audio.transcriptions.create(
+                model="openai/whisper-large-v3",
+                file=audio_payload
             )
+            user_text = transcription.text
+            
+            st.info(f"**Recognized Voice Command:** '{user_text}'")
+            
+            # 3. Intercept Termux Hardware commands to show safely on screen instead of crashing
+            # We mock the print/speak pipeline
+            output_placeholder = st.empty()
+            
+            # Redirect jarvis' internal speak mechanism to print out on screen instead
+            def web_speak(text):
+                st.success(f"**JARVIS Response:** {text}")
+            jarvis.speak = web_speak
 
-            # Delete the temporary file safely after processing
-            if os.path.exists(temp_audio_path):
-                os.remove(temp_audio_path)
-
-            # 5. Display the result
-            if result.returncode == 0:
-                st.success("Processing Complete!")
-                if result.stdout:
-                    st.subheader("Transcribed Text & Backend Output:")
-                    st.write(result.stdout)
-            else:
-                st.error("The backend returned an error:")
-                st.code(result.stderr if result.stderr else result.stdout)
-
+            with st.spinner("Executing system processes..."):
+                # Run your core direct handling commands logic!
+                result = jarvis.handle_direct_command(user_text)
+                
+                if result == "__EXIT__":
+                    st.warning("Shutdown instruction received.")
+                elif result:
+                    web_speak(result)
+                else:
+                    # Handoff to OpenRouter LLM if no native task matches
+                    st.write("🧠 Processing fallback via AI network...")
+                    ai_answer = jarvis.ask_ai(user_text)
+                    web_speak(ai_answer)
+                    
         except Exception as e:
-            st.error(f"Error sending audio to backend: {e}")
+            st.error(f"Execution Error: {e}")
             
